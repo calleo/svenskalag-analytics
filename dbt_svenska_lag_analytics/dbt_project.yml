@@ -1,0 +1,19 @@
+name: 'dbt_svenska_lag_analytics'
+version: '1.0.0'
+
+profile: 'dbt_svenska_lag_analytics'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  dbt_svenska_lag_analytics:
+    +materialized: table

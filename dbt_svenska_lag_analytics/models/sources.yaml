@@ -1,0 +1,9 @@
+version: 2
+
+sources:
+  - name: svenska_lag
+    database: svenska_lag
+    schema: main
+    tables:
+      - name: raw_activity
+      - name: raw_presence

@@ -1,0 +1,10 @@
+dbt_svenska_lag_analytics:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: target/svenska_lag_analytics.duckdb
+      extensions:
+        - icu
+      attach:
+        - path: ../data/svenska_lag.duckdb

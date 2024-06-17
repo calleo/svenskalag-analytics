@@ -1,0 +1,17 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+scrapy = "*"
+esprima = "*"
+"calmjs.parse" = "*"
+dbt-duckdb = "*"
+duckdb = "*"
+dbt-core = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.10.6"

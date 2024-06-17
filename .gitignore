@@ -1,0 +1,9 @@
+temp/
+.env
+logs/
+target/
+.idea/
+.user.yml
+*.duckdb
+*.duckdb.wal
+*.csv
