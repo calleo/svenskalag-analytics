@@ -20,7 +20,8 @@ SELECT
     LEADER.stats.star AS STATS_STAR,
     LEADER.birthDate::DATE AS DATE_OF_BIRTH,
     LEADER.isLeader AS IS_LEADER,
-    LEADER.isPlayer AS IS_PLAYER
+    LEADER.isPlayer AS IS_PLAYER,
+    LEADER.memberTypeId AS MEMBER_TYPE_ID
 FROM leaders
 UNION ALL
 SELECT
@@ -34,5 +35,6 @@ SELECT
     PLAYER.stats.star AS STATS_STAR,
     PLAYER.birthDate::DATE AS DATE_OF_BIRTH,
     PLAYER.isLeader AS IS_LEADER,
-    PLAYER.isPlayer AS IS_PLAYER
+    PLAYER.isPlayer AS IS_PLAYER,
+    PLAYER.memberTypeId AS MEMBER_TYPE_ID
 FROM players
