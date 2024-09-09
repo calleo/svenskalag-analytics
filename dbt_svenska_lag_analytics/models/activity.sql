@@ -10,6 +10,7 @@ WITH activities AS (
             WHEN EVENT_TYPE_ID = 6 THEN 'Cup'
             WHEN EVENT_TYPE_ID = 7 THEN 'Match'
             WHEN EVENT_TYPE_ID = 9 THEN 'Work Shift'
+            WHEN EVENT_TYPE_ID = 10 THEN 'Camp'
         END AS EVENT_TYPE_LABEL,
         CONCAT(SCHEDULE_DATE, ' ', START_TIME, ':00 Europe/Stockholm')::TIMESTAMPTZ AS START_AT,
         CONCAT(SCHEDULE_DATE, ' ', END_TIME, ':00 Europe/Stockholm')::TIMESTAMPTZ AS END_AT,
