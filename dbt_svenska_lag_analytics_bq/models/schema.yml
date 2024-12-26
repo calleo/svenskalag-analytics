@@ -1,0 +1,59 @@
+version: 2
+
+models:
+  - name: activity
+    description: Team activities
+    columns:
+      - name: activity_id
+        data_tests:
+          - unique
+          - not_null
+      - name: activity
+        data_tests:
+          - not_null
+      - name: result
+        data_tests:
+          - not_null:
+              config:
+                where: 'RESULT_TYPE_ID IS NOT NULL'
+      - name: start_at
+        data_tests:
+          - not_null
+      - name: end_at
+        data_tests:
+          - not_null
+      - name: duration_minutes
+        data_tests:
+          - not_null
+  - name: member
+    description: Team members
+    columns:
+      - name: member_id
+        data_tests:
+          - unique
+          - not_null
+      - name: first_name
+        data_tests:
+          - not_null
+      - name: last_name
+        data_tests:
+          - not_null
+      - name: birth_date
+      - name: member_type
+        data_tests:
+          - not_null
+  - name: attended_activity
+    description: A member attended an activity
+    columns:
+      - name: attendance_id
+        data_tests:
+          - unique
+          - not_null
+      - name: member_id
+        data_tests:
+          - not_null
+      - name: activity_id
+        data_tests:
+          - not_null
+  - name: export_all
+    description: Wide table consisting of all attendances and the related data

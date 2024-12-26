@@ -7,3 +7,6 @@ target/
 *.duckdb
 *.duckdb.wal
 *.csv
+.gcloud
+.DS_Store
+metabase/
