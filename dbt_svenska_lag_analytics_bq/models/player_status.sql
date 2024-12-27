@@ -1,0 +1,62 @@
+{{
+    config(
+        materialized='table'
+    )
+}}
+
+WITH activities AS (
+  SELECT
+    MEMBER_ID,
+    CAST(START_AT AS DATE) AS DATE_DAY,
+    COUNT(*) AS ACTIVITIES
+  FROM {{ ref('attended_activity') }}
+  LEFT JOIN {{ ref('activity') }} USING(ACTIVITY_ID)
+  LEFT JOIN {{ ref('member') }} USING(MEMBER_ID)
+  WHERE MEMBER_TYPE = 'Player' AND IS_F2014
+  GROUP BY ALL
+), calendar AS (
+  SELECT
+    MEMBER_ID,
+    DATE_DAY
+  FROM {{ ref('calendar') }}
+  LEFT JOIN (SELECT MEMBER_ID, MIN(DATE_DAY) AS FIRST_ACTIVITY FROM activities GROUP BY ALL)
+  ON DATE_DAY >= FIRST_ACTIVITY AND DATE_DAY < CURRENT_DATE()
+  WHERE MEMBER_ID IS NOT NULL
+), with_activity_count AS (
+  SELECT
+    calendar.MEMBER_ID,
+    calendar.DATE_DAY,
+    activities.ACTIVITIES,
+  FROM calendar
+  LEFT JOIN activities USING(MEMBER_ID, DATE_DAY)
+), with_last_activity AS (
+  SELECT
+    MEMBER_ID,
+    DATE_DAY,
+    ACTIVITIES,
+    ROW_NUMBER() OVER (PARTITION BY MEMBER_ID ORDER BY DATE_DAY ASC) AS CALENDAR_ROW,
+    (SELECT MAX(DATE_DAY) FROM with_activity_count sq WHERE sq.MEMBER_ID = with_activity_count.MEMBER_ID AND sq.DATE_DAY <= with_activity_count.DATE_DAY AND sq.ACTIVITIES > 0) AS LAST_ACTIVITY_AT
+  FROM with_activity_count
+), with_metrics AS (
+  SELECT
+    MEMBER_ID,
+    DATE_DAY,
+    ACTIVITIES,
+    LAST_ACTIVITY_AT,
+    CALENDAR_ROW,
+    DATE_DIFF(DATE_DAY, LAST_ACTIVITY_AT, DAY) AS DAYS_SINCE_LAST_ACTIVITY
+  FROM with_last_activity
+)
+SELECT
+  MEMBER_ID,
+  DATE_DAY,
+  CASE
+    WHEN CALENDAR_ROW = 1 OR (LAG(DAYS_SINCE_LAST_ACTIVITY) OVER (PARTITION BY MEMBER_ID ORDER BY DATE_DAY ASC) > 91 AND DAYS_SINCE_LAST_ACTIVITY = 0) THEN 'New'
+    WHEN DAYS_SINCE_LAST_ACTIVITY = 91 THEN 'Churn'
+  END AS STATUS_EVENT,
+  CASE
+    WHEN DAYS_SINCE_LAST_ACTIVITY <= 90 THEN 'Active'
+    ELSE 'Churned'
+  END AS STATUS,
+FROM with_metrics
+ORDER BY MEMBER_ID, DATE_DAY

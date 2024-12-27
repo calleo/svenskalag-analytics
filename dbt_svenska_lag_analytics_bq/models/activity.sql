@@ -5,6 +5,7 @@ WITH activities AS (
         activity_type.NAME AS ACTIVITY,
         TIMESTAMP(CONCAT(SCHEDULE_DATE, ' ', START_TIME, ':00'), 'Europe/Stockholm') AS START_AT,
         TIMESTAMP(CONCAT(SCHEDULE_DATE, ' ', END_TIME, ':00'), 'Europe/Stockholm') AS END_AT,
+        IF(END_TIME = '00:00', 1, 0) AS ADD_DAYS, -- Svenska Lag start/end logic
         PLACE,
         IS_HOME_FACILITY,
         OPPONENT_CLUB_ID,
@@ -18,11 +19,8 @@ WITH activities AS (
     LEFT JOIN {{ ref('result_type') }} USING(RESULT_TYPE_ID)
 ), corrected_end_at AS (
     SELECT
-        * EXCEPT(END_AT),
-        CASE
-            WHEN EXTRACT(HOUR FROM END_AT) = 0 AND EXTRACT(MINUTE FROM END_AT) = 0 THEN TIMESTAMP_ADD(END_AT, INTERVAL 1 DAY)
-            ELSE END_AT
-        END AS END_AT
+        * EXCEPT(END_AT, ADD_DAYS),
+        TIMESTAMP_ADD(END_AT, INTERVAL ADD_DAYS DAY) AS END_AT
     FROM activities
 )
 SELECT

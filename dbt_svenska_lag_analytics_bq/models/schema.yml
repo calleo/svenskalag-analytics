@@ -1,6 +1,28 @@
 version: 2
 
 models:
+  - name: player_status
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - date_day
+            - member_id
+    columns:
+      - name: date_day
+        data_tests:
+          - not_null
+      - name: member_id
+        data_tests:
+          - not_null
+      - name: status
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['Active', 'Churned']
+      - name: status_event
+        data_tests:
+          - accepted_values:
+              values: [ 'New', 'Churn' ]
   - name: activity
     description: Team activities
     columns:
@@ -25,6 +47,9 @@ models:
       - name: duration_minutes
         data_tests:
           - not_null
+      - name: duration_hours
+        data_tests:
+          - not_null
   - name: member
     description: Team members
     columns:
@@ -42,6 +67,10 @@ models:
       - name: member_type
         data_tests:
           - not_null
+      - name: full_name
+        data_tests:
+          - not_null
+          - unique
   - name: attended_activity
     description: A member attended an activity
     columns:
