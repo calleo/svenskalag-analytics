@@ -34,10 +34,12 @@ jobs:
                 type: bigquery
                 method: service-account
                 project: $GCLOUD_PROJECT_ID
-                dataset: your-dataset
+                dataset: dwh
                 threads: 16
                 keyfile: ~/.dbt/gcloud-service-account.json
           EOT
+      - name: Debug
+        run: cat ~/.dbt/profiles.yml
       - name: Checkout code
         uses: actions/checkout@v4
       - name: dbt Dependencies
