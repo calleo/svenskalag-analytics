@@ -8,24 +8,44 @@ on:
 #    - cron: '0 2 * * 1'
 
 jobs:
-  setup:
+  dbt:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/dbt-labs/dbt-bigquery:1.9.latest
     # TODO:
     # - Add scrape step/workflow
     # - Use latest LOAD_ID in dbt models
-    # - Setup gcloud authentication
-    # - Setup dbt profile
     steps:
+      - name: Google Cloud Init
+        env:
+          GCLOUD_SERVICE_ACCOUNT: ${{ secrets.GCLOUD_SERVICE_ACCOUNT }}
+        run: |
+          mkdir -p ~/.dbt
+          echo $GCLOUD_SERVICE_ACCOUNT | base64 --decode > ~/.dbt/gcloud-service-account.json
+      - name: dbt Profile
+        env:
+          GCLOUD_PROJECT_ID: ${{ secrets.GCLOUD_PROJECT_ID }}
+        run: |
+          cat <<EOT > ~/.dbt/profiles.yml
+          default:
+            target: dev
+            outputs:
+              dev:
+                type: bigquery
+                method: service-account
+                project: $GCLOUD_PROJECT_ID
+                dataset: your-dataset
+                threads: 16
+                keyfile: ~/.dbt/gcloud-service-account.json
+          EOT
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Dependencies
+      - name: dbt Dependencies
         working-directory: dbt_svenska_lag_analytics_bq
         run: dbt deps
-      - name: Seeds
+      - name: dbt Seeds
         working-directory: dbt_svenska_lag_analytics_bq
         run: dbt seed --full-refresh
-      - name: Build
+      - name: dbt Build
         working-directory: dbt_svenska_lag_analytics_bq
         run: dbt build
