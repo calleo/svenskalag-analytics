@@ -1,0 +1,44 @@
+name: Scrape
+
+on:
+  push:
+    branches:
+      - main
+#  schedule:
+#    - cron: '0 2 * * 1'
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10.6'
+      - name: Google Cloud Init
+        env:
+          GCLOUD_SERVICE_ACCOUNT: ${{ secrets.GCLOUD_SERVICE_ACCOUNT }}
+        run: |
+          echo $HOME
+          echo $GCLOUD_SERVICE_ACCOUNT | base64 --decode > /home/runner/gcloud-service-account.json
+      - name: Install
+        run: |
+          sudo apt-get update
+          sudo apt-get install language-pack-sv
+          locale -a
+          sudo locale-gen sv_SE.utf8
+          sudo update-locale 
+          pip install pipenv
+          make install
+          mkdir -p temp
+      - name: Scrape
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: "/home/runner/gcloud-service-account.json"
+          SVENSKALAG_USER: ${{ secrets.SVENSKALAG_USER }}
+          SVENSKALAG_PASSWORD: ${{ secrets.SVENSKALAG_PASSWORD }}
+          SVENSKALAG_START_DATE: "2021-01-01"
+          SVENSKALAG_TEAM_SLUG: ${{ secrets.SVENSKALAG_TEAM_SLUG }}
+          SVENSKALAG_DOMAIN: ${{ secrets.SVENSKALAG_DOMAIN }}
+        run: make scrape

@@ -1,6 +1,6 @@
 # Initialize the Pipenv environment
 install:
-	pipenv lock
+	pipenv install
 
 # Scrape data from Svenska Lag
 scrape:

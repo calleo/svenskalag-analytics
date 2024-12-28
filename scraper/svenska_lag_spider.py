@@ -12,7 +12,7 @@ import duckdb
 import uuid
 from google.cloud import bigquery
 
-locale.setlocale(locale.LC_TIME, 'sv_SE') # Get month names in Swedish
+locale.setlocale(locale.LC_TIME, 'sv_SE.utf8') # Get month names in Swedish
 DATA = {
     "activity": [],
     "presence": []
@@ -73,8 +73,8 @@ class SvenskaLagSpider(scrapy.Spider):
 
     def start_requests(self) -> Any:
         login_url = "https://www.ekf.nu/ekf-fotboll-f2014/logga-in"
-        username = os.getenv("SVENSKALAG_USER")
-        password = os.getenv("SVENSKALAG_PASSWORD")
+        username = os.environ["SVENSKALAG_USER"]
+        password = os.environ["SVENSKALAG_PASSWORD"]
         yield scrapy.FormRequest(
             login_url,
             formdata={'UserName': username, 'UserPass': password},
@@ -165,14 +165,10 @@ if __name__ == "__main__":
 
     activity_count = conn.execute("SELECT COUNT(*) FROM raw_activity").fetchone()[0]
     presence_count = conn.execute("SELECT COUNT(*) FROM raw_presence").fetchone()[0]
-    print(f"Create raw table for activities, with a {activity_count} rows")
-    print(f"Create raw table for presences, with a {presence_count} rows")
+    print(f"Create raw table for activities, with {activity_count} rows")
+    print(f"Create raw table for presences, with {presence_count} rows")
 
     def load_bq_table(bq_client: bigquery.Client, file_path: str, table_id: str):
-        # Truncate
-        #query = bq_client.query(f"DROP TABLE IF EXISTS {table_id}")
-        #query.result()
-
         job_config = bigquery.LoadJobConfig(
             source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
             write_disposition="WRITE_APPEND",
