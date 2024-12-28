@@ -1,11 +1,9 @@
 name: Scrape
 
 on:
-  push:
-    branches:
-      - main
-#  schedule:
-#    - cron: '0 2 * * 1'
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * 1'
 
 jobs:
   scrape:
@@ -20,9 +18,7 @@ jobs:
       - name: Google Cloud Init
         env:
           GCLOUD_SERVICE_ACCOUNT: ${{ secrets.GCLOUD_SERVICE_ACCOUNT }}
-        run: |
-          echo $HOME
-          echo $GCLOUD_SERVICE_ACCOUNT | base64 --decode > /home/runner/gcloud-service-account.json
+        run: echo $GCLOUD_SERVICE_ACCOUNT | base64 --decode > /home/runner/gcloud-service-account.json
       - name: Install
         run: |
           sudo apt-get update

@@ -4,6 +4,7 @@ WITH leaders AS (
         leader AS LEADER
     FROM {{ source('dwh', 'raw_presence') }},
     UNNEST(teamPresenceGroups[OFFSET(0)].leaders) AS leader
+    WHERE LOAD_ID = (SELECT LOAD_ID FROM {{ source('dwh', 'raw_presence') }} ORDER BY LOAD_TIMESTAMP DESC LIMIT 1)
 ),
 players AS (
     SELECT
@@ -11,6 +12,7 @@ players AS (
         player AS PLAYER
     FROM {{ source('dwh', 'raw_presence') }},
     UNNEST(teamPresenceGroups[OFFSET(0)].participants) AS player
+    WHERE LOAD_ID = (SELECT LOAD_ID FROM {{ source('dwh', 'raw_presence') }} ORDER BY LOAD_TIMESTAMP DESC LIMIT 1)
 )
 SELECT
     LEADER.ID,
