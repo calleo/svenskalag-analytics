@@ -6,9 +6,9 @@ target/
 .user.yml
 *.duckdb
 *.duckdb.wal
-*.csv
 .gcloud
 .DS_Store
 metabase/
 dbt_packages/
 profiles.yml
+data/*.csv
