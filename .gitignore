@@ -11,3 +11,4 @@ target/
 .DS_Store
 metabase/
 dbt_packages/
+profiles.yml
