@@ -27,7 +27,7 @@ jobs:
           GCLOUD_PROJECT_ID: ${{ secrets.GCLOUD_PROJECT_ID }}
         run: |
           cat <<EOT > ~/.dbt/profiles.yml
-          default:
+          dbt_svenska_lag_analytics:
             target: dev
             outputs:
               dev:
