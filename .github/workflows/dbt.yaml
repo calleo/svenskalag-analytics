@@ -1,0 +1,31 @@
+name: dbt Build
+
+on:
+  push:
+    branches:
+      - main
+#  schedule:
+#    - cron: '0 2 * * 1'
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/dbt-labs/dbt-bigquery:1.9.latest
+    # TODO:
+    # - Add scrape step/workflow
+    # - Use latest LOAD_ID in dbt models
+    # - Setup gcloud authentication
+    # - Setup dbt profile
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Dependencies
+        working-directory: dbt_svenska_lag_analytics_bq
+        run: dbt deps
+      - name: Seeds
+        working-directory: dbt_svenska_lag_analytics_bq
+        run: dbt seed --full-refresh
+      - name: Build
+        working-directory: dbt_svenska_lag_analytics_bq
+        run: dbt build

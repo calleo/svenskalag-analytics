@@ -10,3 +10,4 @@ target/
 .gcloud
 .DS_Store
 metabase/
+dbt_packages/
