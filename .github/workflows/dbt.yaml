@@ -36,10 +36,12 @@ jobs:
                 project: $GCLOUD_PROJECT_ID
                 dataset: dwh
                 threads: 16
-                keyfile: ~/.dbt/gcloud-service-account.json
+                keyfile: /github/home/.dbt/gcloud-service-account.json
           EOT
       - name: Debug
-        run: cat ~/.dbt/profiles.yml
+        run: |
+          cat ~/.dbt/gcloud-service-account.json | wc
+          echo $HOME
       - name: Checkout code
         uses: actions/checkout@v4
       - name: dbt Dependencies
