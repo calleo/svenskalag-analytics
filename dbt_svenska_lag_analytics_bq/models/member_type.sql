@@ -1,3 +1,3 @@
 SELECT
     *
-FROM {{ ref('member_types') }}
+FROM {{ ref("seed_member_types") }}

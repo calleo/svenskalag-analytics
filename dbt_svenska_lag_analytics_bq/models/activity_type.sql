@@ -1,3 +1,3 @@
 SELECT
     *
-FROM {{ ref('activity_types') }}
+FROM {{ ref("seed_activity_types") }}
