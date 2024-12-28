@@ -47,7 +47,10 @@ jobs:
         run: dbt deps
       - name: dbt Seeds
         working-directory: dbt_svenska_lag_analytics_bq
-        run: dbt seed --full-refresh
+        run: |
+          ls -la
+          pwd
+          dbt seed --full-refresh
       - name: dbt Build
         working-directory: dbt_svenska_lag_analytics_bq
         run: dbt build
