@@ -10,9 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/dbt-labs/dbt-bigquery:1.9.latest
-    # TODO:
-    # - Add scrape step/workflow
-    # - Use latest LOAD_ID in dbt models
     steps:
       - name: Google Cloud Init
         env:

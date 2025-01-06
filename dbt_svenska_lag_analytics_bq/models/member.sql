@@ -9,7 +9,7 @@ WITH members AS (
         DATE_OF_BIRTH,
         IF(EXTRACT(YEAR FROM DATE_OF_BIRTH) = 2014, TRUE, FALSE) AS IS_F2014,
         MEMBER_TYPE_ID,
-        member_type.NAME AS MEMBER_TYPE
+        member_type.NAME AS MEMBER_TYPE,
     FROM {{ ref('stg_presence') }}
     LEFT JOIN {{ ref('member_type') }} USING(MEMBER_TYPE_ID)
     QUALIFY ROW_NUMBER() OVER (PARTITION BY USER_ID ORDER BY SCHEDULE_ID DESC) = 1
