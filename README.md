@@ -52,6 +52,6 @@ Run `make dbt_build` runs DBT and produces the tables used for the analysis.
 
 ### Step 3 - Analyze
 
-Running `make query` will start the DuckDB client against the database which DBT created. Run a query, for example `SELECT * FROM member LIMIT 10`.
+Running `make query` will start the DuckDB client against the database which DBT created. Run a query, for example `SELECT * FROM member LIMIT 11`.
 
 If you prefer to import the data into a spreadsheet application (say Microsoft Excel), run `make csv_export` to get a CSV file (stored in `./data` folder) which you can then import into the application.
