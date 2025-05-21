@@ -1,6 +1,6 @@
 # Svenskalag Analytics
 
-Ever wanted to extract data from Svenskalag to build custom reports and perform analysis which is not supported out of the box?
+Ever wanted to extract data from Svenskalag to build custom reports and perform analysis which is not supported out of the box.
 
 This repository contains code to extract data and transform it into analytics ready tables.
 
