@@ -6,6 +6,8 @@ This repository contains code to extract data and transform it into analytics re
 
 This project has nothing to do with the company behind [Svenskalag.se](https://www.svenskalag.se).
 
+🍓
+
 ## Introduction
 
 This is the result of a weekend project. As you might expect from such projects, corners have been cut to quickly solve problems and reach the wanted results. The motivational driver behind the project was to analyze training and game attendance, as well as learning a bit about web scraping and DuckDB.
