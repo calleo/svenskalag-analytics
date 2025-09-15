@@ -6,7 +6,7 @@ This repository contains code to extract data and transform it into analytics re
 
 This project has nothing to do with the company behind [Svenskalag.se](https://www.svenskalag.se).
 
-🍓
+🍐
 
 ## Introduction
 
