@@ -7,6 +7,10 @@ scrape:
 	pipenv run python scraper/svenska_lag_spider.py
 
 # Run and test all DBT models
+dbt_deps_bq:
+	cd dbt_svenska_lag_analytics_bq && pipenv run dbt deps
+
+# Run and test all DBT models
 dbt_build:
 	cd dbt_svenska_lag_analytics && pipenv run dbt build
 

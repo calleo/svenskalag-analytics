@@ -13,7 +13,8 @@ WITH activities AS (
         RESULT_TYPE_ID,
         result_type.NAME AS RESULT,
         GOALS_FOR,
-        GOALS_AGAINST
+        GOALS_AGAINST,
+        SEASON_ID
     FROM {{ ref('stg_activity') }}
     LEFT JOIN {{ ref('activity_type') }} USING(ACTIVITY_TYPE_ID)
     LEFT JOIN {{ ref('result_type') }} USING(RESULT_TYPE_ID)

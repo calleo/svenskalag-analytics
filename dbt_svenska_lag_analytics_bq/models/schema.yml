@@ -50,6 +50,11 @@ models:
       - name: duration_hours
         data_tests:
           - not_null
+      - name: season_id
+        data_tests:
+          - relationships:
+              to: ref('season')
+              field: season_id
   - name: member
     description: Team members
     columns:
