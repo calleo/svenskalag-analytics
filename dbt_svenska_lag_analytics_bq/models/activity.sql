@@ -14,7 +14,8 @@ WITH activities AS (
         result_type.NAME AS RESULT,
         GOALS_FOR,
         GOALS_AGAINST,
-        SEASON_ID
+        SEASON_ID,
+        CUP_NR_OF_GAMES,
     FROM {{ ref('stg_activity') }}
     LEFT JOIN {{ ref('activity_type') }} USING(ACTIVITY_TYPE_ID)
     LEFT JOIN {{ ref('result_type') }} USING(RESULT_TYPE_ID)

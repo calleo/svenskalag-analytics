@@ -16,5 +16,7 @@ SELECT
     seasonId AS SEASON_ID,
     scheduleText AS SCHEDULE_TEXT,
     scheduleInfo AS SCHEDULE_INFO,
+    -- Extra metadata from free text field
+    CAST(REGEXP_EXTRACT(scheduleInfo, r'\[matcher=([^\]]+)\]') AS INT64) AS CUP_NR_OF_GAMES,
 FROM {{ source('dwh', 'raw_activity') }}
 WHERE LOAD_ID = (SELECT LOAD_ID FROM {{ source('dwh', 'raw_activity') }} ORDER BY LOAD_TIMESTAMP DESC LIMIT 1)
