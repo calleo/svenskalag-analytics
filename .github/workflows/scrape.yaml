@@ -37,4 +37,5 @@ jobs:
           SVENSKALAG_START_DATE: "2021-01-01"
           SVENSKALAG_TEAM_SLUG: ${{ secrets.SVENSKALAG_TEAM_SLUG }}
           SVENSKALAG_DOMAIN: ${{ secrets.SVENSKALAG_DOMAIN }}
+          SCRAPY_LOG_LEVEL: "INFO"
         run: make scrape

@@ -70,13 +70,17 @@ class SvenskaLagSpider(scrapy.Spider):
     def _html_hash(response: scrapy.http.Response) -> str:
         return hashlib.sha256(response.text.encode("utf-8")).hexdigest()[:12]
 
+    @staticmethod
+    def _login_form_count(response: scrapy.http.Response) -> int:
+        return len(response.xpath(
+            "//form[.//input[@name='UserName'] or .//input[contains(@name,'Pass')] or .//input[@type='password']]"
+        ))
+
     def _log_response_evidence(self, checkpoint: str, response: scrapy.http.Response):
         title = (response.xpath("//title/text()").get() or "").strip()
         canonical = response.xpath("//link[@rel='canonical']/@href").get()
         has_logout = "Logga ut" in response.text
-        login_form_count = len(response.xpath(
-            "//form[.//input[@name='UserName'] or .//input[contains(@name,'Pass')] or .//input[@type='password']]"
-        ))
+        login_form_count = self._login_form_count(response=response)
         forms = response.xpath("//form")[:5]
         form_evidence = []
         for form in forms:
@@ -94,14 +98,16 @@ class SvenskaLagSpider(scrapy.Spider):
             "x-cache": response.headers.get("X-Cache", b"").decode("utf-8", errors="ignore"),
             "location": response.headers.get("Location", b"").decode("utf-8", errors="ignore"),
         }
+        redirect_urls = response.request.meta.get("redirect_urls", [])
+        request_url = response.request.url if response.request else ""
         self.logger.info(
-            "[DEBUG_%s] status=%s response_url=%s request_url=%s redirects=%s title=%r canonical=%r "
+            "[%s] status=%s response_url=%s request_url=%s redirects=%s title=%r canonical=%r "
             "has_logout=%s login_forms=%s html_len=%s html_sha256=%s headers=%s forms=%s",
             checkpoint,
             response.status,
             response.url,
-            response.request.url,
-            response.request.meta.get("redirect_urls", []),
+            request_url,
+            redirect_urls,
             title,
             canonical,
             has_logout,
@@ -110,6 +116,44 @@ class SvenskaLagSpider(scrapy.Spider):
             self._html_hash(response),
             headers,
             form_evidence
+        )
+
+    def _assert_authenticated(self, response: scrapy.http.Response, checkpoint: str):
+        title = (response.xpath("//title/text()").get() or "").strip()
+        canonical = response.xpath("//link[@rel='canonical']/@href").get()
+        redirect_urls = response.request.meta.get("redirect_urls", [])
+        request_url = response.request.url if response.request else ""
+        response_url = response.url
+        has_logout = "Logga ut" in response.text
+        login_form_count = self._login_form_count(response=response)
+        is_login_url = "logga-in" in response_url.lower()
+        authenticated = has_logout and not is_login_url
+        self.logger.info(
+            "[%s] authenticated=%s response_url=%s request_url=%s redirects=%s has_logout=%s login_forms=%s "
+            "title=%r canonical=%r",
+            checkpoint,
+            authenticated,
+            response_url,
+            request_url,
+            redirect_urls,
+            has_logout,
+            login_form_count,
+            title,
+            canonical,
+        )
+        if authenticated:
+            return
+
+        body_snippet = self._short_snippet(
+            response.xpath("//main").get() or response.xpath("//body").get(),
+            length=300
+        )
+        raise Exception(
+            "Login validation failed: "
+            f"response_url={response_url} request_url={request_url} redirects={redirect_urls} "
+            f"title={title!r} canonical={canonical!r} has_logout={has_logout} "
+            f"login_form_count={login_form_count} html_sha256={self._html_hash(response)} "
+            f"body_snippet={body_snippet!r}"
         )
 
     @staticmethod
@@ -141,43 +185,56 @@ class SvenskaLagSpider(scrapy.Spider):
         yield scrapy.FormRequest(
             login_url,
             formdata={'UserName': username, 'UserPass': password},
-            callback=self.parse
+            callback=self.after_login,
+            dont_filter=True
         )
 
-    def parse(self, response: scrapy.http.Response, **kwargs: Any):
+    def after_login(self, response: scrapy.http.Response, **kwargs: Any):
         self.truncate_files()
         self._log_response_evidence(checkpoint="AUTH_RESPONSE", response=response)
-        authenticated = "Logga ut" in response.text
+        self._assert_authenticated(response=response, checkpoint="AUTH_CHECK")
+        start_urls = self._get_start_urls()
         self.logger.info(
-            "[DEBUG_AUTH_CHECK] authenticated=%s start_urls=%s",
-            authenticated,
-            self._get_start_urls()[:5]
+            "[AUTH_CHECK] start_urls_count=%s start_urls_sample=%s",
+            len(start_urls),
+            start_urls[:5]
         )
-        if not authenticated:
-            self.logger.warning("[DEBUG_AUTH_CHECK] Login may have failed; calendar pages might redirect to login.")
-        yield from response.follow_all(self._get_start_urls(), callback=self.parse_calendar)
+        yield from response.follow_all(start_urls, callback=self.parse_calendar)
 
     def parse_calendar(self, response: scrapy.http.Response, **kwargs: Any):
         self._log_response_evidence(checkpoint="CALENDAR_RESPONSE", response=response)
-        if not "Logga ut" in response.text:
-            raise Exception("Inloggning misslyckades")
+        self._assert_authenticated(response=response, checkpoint="AUTH_CHECK")
 
         activities_urls = response.xpath(
             './/td/a[@class="invisible-link"]/@href'
         ).getall()
         self.logger.info(
-            "[DEBUG_CALENDAR_LINKS] calendar_url=%s total_links=%s sample_links=%s",
+            "[CALENDAR_LINKS] calendar_url=%s total_links=%s sample_links=%s",
             response.url,
             len(activities_urls),
             [response.urljoin(url) for url in activities_urls[:10]]
         )
+        if not activities_urls:
+            link_evidence = []
+            for link in response.xpath("//td/a")[:8]:
+                link_evidence.append(
+                    {
+                        "class": link.xpath("@class").get(),
+                        "href": link.xpath("@href").get(),
+                        "text": self._short_snippet(link.xpath("normalize-space(.)").get(), length=80),
+                    }
+                )
+            raise Exception(
+                "No calendar activity links found with selector './/td/a[@class=\"invisible-link\"]/@href': "
+                f"url={response.url} links_seen={link_evidence}"
+            )
 
         # Only include team activities and skip org activities
         team_filter = f"/{self.team_slug}/"
         kept_urls = [url for url in activities_urls if self._is_team_activity(url)]
         removed_urls = [url for url in activities_urls if not self._is_team_activity(url)]
         self.logger.info(
-            "[DEBUG_CALENDAR_FILTER] team_slug=%s criteria=%s kept=%s removed=%s kept_sample=%s removed_sample=%s",
+            "[CALENDAR_FILTER] team_slug=%s criteria=%s kept=%s removed=%s kept_sample=%s removed_sample=%s",
             self.team_slug,
             team_filter,
             len(kept_urls),
@@ -190,7 +247,7 @@ class SvenskaLagSpider(scrapy.Spider):
         presence_urls = [self._get_presence_url(activity_id=self._get_activity_id(url)) for url
                          in activities_urls]
         self.logger.info(
-            "[DEBUG_CALENDAR_PRESENCE] generated=%s sample=%s",
+            "[CALENDAR_PRESENCE] generated=%s sample=%s",
             len(presence_urls),
             presence_urls[:5]
         )
@@ -203,7 +260,7 @@ class SvenskaLagSpider(scrapy.Spider):
                                        is_game=self._is_match(url=url))
             )
         self.logger.info(
-            "[DEBUG_CALENDAR_ACTIVITY] generated=%s sample=%s",
+            "[CALENDAR_ACTIVITY] generated=%s sample=%s",
             len(activity_urls),
             activity_urls[:5]
         )
@@ -214,7 +271,7 @@ class SvenskaLagSpider(scrapy.Spider):
         self._log_response_evidence(checkpoint="PRESENCE_RESPONSE", response=response)
         init_data = response.xpath('/html/head/script/text()')
         self.logger.info(
-            "[DEBUG_PRESENCE_SCRIPTS] url=%s head_script_text_nodes=%s all_script_nodes=%s",
+            "[PRESENCE_SCRIPTS] url=%s head_script_text_nodes=%s all_script_nodes=%s",
             response.url,
             len(init_data),
             len(response.xpath("//script"))
@@ -226,7 +283,7 @@ class SvenskaLagSpider(scrapy.Spider):
                 program = ast_to_dict(calmjs.parse.es5(value))
             except Exception as parse_error:
                 self.logger.info(
-                    "[DEBUG_PRESENCE_SCRIPT_PARSE_ERROR] url=%s script_index=%s script_len=%s snippet=%r error=%s",
+                    "[PRESENCE_SCRIPT_PARSE_ERROR] url=%s script_index=%s script_len=%s snippet=%r error=%s",
                     response.url,
                     index,
                     len(value),
@@ -236,7 +293,7 @@ class SvenskaLagSpider(scrapy.Spider):
                 continue
             if "initData" in program:
                 self.logger.info(
-                    "[DEBUG_PRESENCE_INITDATA] url=%s initData_keys=%s",
+                    "[PRESENCE_INITDATA] url=%s initData_keys=%s",
                     response.url,
                     list(program["initData"].keys())[:10] if isinstance(program["initData"], dict) else type(program["initData"])
                 )
@@ -254,7 +311,7 @@ class SvenskaLagSpider(scrapy.Spider):
                 }
             )
         self.logger.warning(
-            "[DEBUG_PRESENCE_INITDATA_MISSING] url=%s scripts=%s",
+            "[PRESENCE_INITDATA_MISSING] url=%s scripts=%s",
             response.url,
             script_evidence
         )
@@ -270,7 +327,7 @@ class SvenskaLagSpider(scrapy.Spider):
             candidate_attrs = {k: self._short_snippet(v, length=120) for k, v in body_attrs.items()
                                if "init" in k.lower() or "ng" in k.lower() or "data" in k.lower()}
             self.logger.warning(
-                "[DEBUG_ACTIVITY_INIT_MISSING] url=%s body_attrs=%s candidate_attrs=%s body_snippet=%r",
+                "[ACTIVITY_INIT_MISSING] url=%s body_attrs=%s candidate_attrs=%s body_snippet=%r",
                 response.url,
                 list(body_attrs.keys()),
                 candidate_attrs,
@@ -282,7 +339,7 @@ class SvenskaLagSpider(scrapy.Spider):
             js = ast_to_dict(calmjs.parse.es5(ng_data_init_value))
         except Exception as parse_error:
             self.logger.warning(
-                "[DEBUG_ACTIVITY_INIT_PARSE_ERROR] url=%s init_len=%s init_snippet=%r error=%s",
+                "[ACTIVITY_INIT_PARSE_ERROR] url=%s init_len=%s init_snippet=%r error=%s",
                 response.url,
                 len(ng_data_init_value),
                 self._short_snippet(ng_data_init_value),
@@ -290,7 +347,7 @@ class SvenskaLagSpider(scrapy.Spider):
             )
             raise
         self.logger.info(
-            "[DEBUG_ACTIVITY_INIT_FOUND] url=%s keys=%s",
+            "[ACTIVITY_INIT_FOUND] url=%s keys=%s",
             response.url,
             list(js.keys())[:10]
         )
@@ -313,7 +370,7 @@ class SvenskaLagSpider(scrapy.Spider):
 
 
 if __name__ == "__main__":
-    process = CrawlerProcess()
+    process = CrawlerProcess(settings={"LOG_LEVEL": os.getenv("SCRAPY_LOG_LEVEL", "INFO")})
     process.crawl(SvenskaLagSpider)
     process.start()
 
