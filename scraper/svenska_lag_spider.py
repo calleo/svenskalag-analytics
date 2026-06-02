@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import locale
 import duckdb
 import uuid
+import hashlib
 from google.cloud import bigquery
 
 locale.setlocale(locale.LC_TIME, 'sv_SE.utf8') # Get month names in Swedish
@@ -25,8 +26,9 @@ LOAD_TIMESTAMP = datetime.now(timezone.utc).isoformat()
 
 class SvenskaLagSpider(scrapy.Spider):
     name = "SvenskaLag"
-    allowed_domains = [os.getenv("SVENSKALAG_DOMAIN")]
-    team_slug = os.getenv("SVENSKALAG_TEAM_SLUG")
+    domain = os.getenv("SVENSKALAG_DOMAIN") or "www.ekf.nu"
+    team_slug = os.getenv("SVENSKALAG_TEAM_SLUG") or "ekf-fotboll-f2014"
+    allowed_domains = [domain]
     start_date = datetime.fromisoformat(os.getenv("SVENSKALAG_START_DATE"))
 
     @staticmethod
@@ -46,7 +48,7 @@ class SvenskaLagSpider(scrapy.Spider):
 
     @staticmethod
     def _build_url(path: str) -> str:
-        return f"https://{SvenskaLagSpider.allowed_domains[0]}/{SvenskaLagSpider.team_slug}/{path}"
+        return f"https://{SvenskaLagSpider.domain}/{SvenskaLagSpider.team_slug}/{path}"
 
     @staticmethod
     def _is_match(url: str):
@@ -54,7 +56,61 @@ class SvenskaLagSpider(scrapy.Spider):
 
     @staticmethod
     def _is_team_activity(url: str):
-        return "/ekf-fotboll-f2014/" in url
+        team_path = f"/{SvenskaLagSpider.team_slug}/"
+        return team_path in url
+
+    @staticmethod
+    def _short_snippet(value: str | None, length: int = 200) -> str:
+        if not value:
+            return ""
+        collapsed = " ".join(value.split())
+        return collapsed[:length]
+
+    @staticmethod
+    def _html_hash(response: scrapy.http.Response) -> str:
+        return hashlib.sha256(response.text.encode("utf-8")).hexdigest()[:12]
+
+    def _log_response_evidence(self, checkpoint: str, response: scrapy.http.Response):
+        title = (response.xpath("//title/text()").get() or "").strip()
+        canonical = response.xpath("//link[@rel='canonical']/@href").get()
+        has_logout = "Logga ut" in response.text
+        login_form_count = len(response.xpath(
+            "//form[.//input[@name='UserName'] or .//input[contains(@name,'Pass')] or .//input[@type='password']]"
+        ))
+        forms = response.xpath("//form")[:5]
+        form_evidence = []
+        for form in forms:
+            input_names = form.xpath(".//input/@name").getall()[:8]
+            form_evidence.append(
+                {
+                    "action": form.xpath("@action").get(),
+                    "method": form.xpath("@method").get(),
+                    "input_names": input_names
+                }
+            )
+        headers = {
+            "content-type": response.headers.get("Content-Type", b"").decode("utf-8", errors="ignore"),
+            "server": response.headers.get("Server", b"").decode("utf-8", errors="ignore"),
+            "x-cache": response.headers.get("X-Cache", b"").decode("utf-8", errors="ignore"),
+            "location": response.headers.get("Location", b"").decode("utf-8", errors="ignore"),
+        }
+        self.logger.info(
+            "[DEBUG_%s] status=%s response_url=%s request_url=%s redirects=%s title=%r canonical=%r "
+            "has_logout=%s login_forms=%s html_len=%s html_sha256=%s headers=%s forms=%s",
+            checkpoint,
+            response.status,
+            response.url,
+            response.request.url,
+            response.request.meta.get("redirect_urls", []),
+            title,
+            canonical,
+            has_logout,
+            login_form_count,
+            len(response.text),
+            self._html_hash(response),
+            headers,
+            form_evidence
+        )
 
     @staticmethod
     def _get_start_urls() -> list[str]:
@@ -72,9 +128,16 @@ class SvenskaLagSpider(scrapy.Spider):
         return urls
 
     def start_requests(self) -> Any:
-        login_url = "https://www.ekf.nu/ekf-fotboll-f2014/logga-in"
+        login_url = self._build_url(path="logga-in")
         username = os.environ["SVENSKALAG_USER"]
         password = os.environ["SVENSKALAG_PASSWORD"]
+        self.logger.info(
+            "[DEBUG_AUTH_START] login_url=%s domain=%s team_slug=%s start_date=%s",
+            login_url,
+            self.domain,
+            self.team_slug,
+            self.start_date.isoformat()
+        )
         yield scrapy.FormRequest(
             login_url,
             formdata={'UserName': username, 'UserPass': password},
@@ -83,53 +146,157 @@ class SvenskaLagSpider(scrapy.Spider):
 
     def parse(self, response: scrapy.http.Response, **kwargs: Any):
         self.truncate_files()
-        yield from response.follow_all(SvenskaLagSpider._get_start_urls(), callback=self.parse_calendar)
+        self._log_response_evidence(checkpoint="AUTH_RESPONSE", response=response)
+        authenticated = "Logga ut" in response.text
+        self.logger.info(
+            "[DEBUG_AUTH_CHECK] authenticated=%s start_urls=%s",
+            authenticated,
+            self._get_start_urls()[:5]
+        )
+        if not authenticated:
+            self.logger.warning("[DEBUG_AUTH_CHECK] Login may have failed; calendar pages might redirect to login.")
+        yield from response.follow_all(self._get_start_urls(), callback=self.parse_calendar)
 
-    @staticmethod
-    def parse_calendar(response: scrapy.http.Response, **kwargs: Any):
+    def parse_calendar(self, response: scrapy.http.Response, **kwargs: Any):
+        self._log_response_evidence(checkpoint="CALENDAR_RESPONSE", response=response)
         if not "Logga ut" in response.text:
             raise Exception("Inloggning misslyckades")
 
         activities_urls = response.xpath(
             './/td/a[@class="invisible-link"]/@href'
         ).getall()
+        self.logger.info(
+            "[DEBUG_CALENDAR_LINKS] calendar_url=%s total_links=%s sample_links=%s",
+            response.url,
+            len(activities_urls),
+            [response.urljoin(url) for url in activities_urls[:10]]
+        )
 
         # Only include team activities and skip org activities
-        activities_urls = [url for url in activities_urls if SvenskaLagSpider._is_team_activity(url)]
+        team_filter = f"/{self.team_slug}/"
+        kept_urls = [url for url in activities_urls if self._is_team_activity(url)]
+        removed_urls = [url for url in activities_urls if not self._is_team_activity(url)]
+        self.logger.info(
+            "[DEBUG_CALENDAR_FILTER] team_slug=%s criteria=%s kept=%s removed=%s kept_sample=%s removed_sample=%s",
+            self.team_slug,
+            team_filter,
+            len(kept_urls),
+            len(removed_urls),
+            [response.urljoin(url) for url in kept_urls[:5]],
+            [response.urljoin(url) for url in removed_urls[:5]]
+        )
+        activities_urls = kept_urls
 
-        presence_urls = [SvenskaLagSpider._get_presence_url(activity_id=SvenskaLagSpider._get_activity_id(url)) for url
+        presence_urls = [self._get_presence_url(activity_id=self._get_activity_id(url)) for url
                          in activities_urls]
-        yield from response.follow_all(presence_urls, callback=SvenskaLagSpider.parse_presence)
+        self.logger.info(
+            "[DEBUG_CALENDAR_PRESENCE] generated=%s sample=%s",
+            len(presence_urls),
+            presence_urls[:5]
+        )
+        yield from response.follow_all(presence_urls, callback=self.parse_presence)
 
         activity_urls = []
         for url in activities_urls:
             activity_urls.append(
-                SvenskaLagSpider._get_activity_url(activity_id=SvenskaLagSpider._get_activity_id(url),
-                                                   is_game=SvenskaLagSpider._is_match(url=url))
+                self._get_activity_url(activity_id=self._get_activity_id(url),
+                                       is_game=self._is_match(url=url))
             )
+        self.logger.info(
+            "[DEBUG_CALENDAR_ACTIVITY] generated=%s sample=%s",
+            len(activity_urls),
+            activity_urls[:5]
+        )
 
-        yield from response.follow_all(activity_urls, callback=SvenskaLagSpider.parse_activity)
+        yield from response.follow_all(activity_urls, callback=self.parse_activity)
 
-    @staticmethod
-    def parse_presence(response: scrapy.http.Response, **kwargs: Any):
+    def parse_presence(self, response: scrapy.http.Response, **kwargs: Any):
+        self._log_response_evidence(checkpoint="PRESENCE_RESPONSE", response=response)
         init_data = response.xpath('/html/head/script/text()')
+        self.logger.info(
+            "[DEBUG_PRESENCE_SCRIPTS] url=%s head_script_text_nodes=%s all_script_nodes=%s",
+            response.url,
+            len(init_data),
+            len(response.xpath("//script"))
+        )
 
-        for data in init_data:
+        for index, data in enumerate(init_data):
             value = data.getall()[0]
-            program = ast_to_dict(calmjs.parse.es5(value))
+            try:
+                program = ast_to_dict(calmjs.parse.es5(value))
+            except Exception as parse_error:
+                self.logger.info(
+                    "[DEBUG_PRESENCE_SCRIPT_PARSE_ERROR] url=%s script_index=%s script_len=%s snippet=%r error=%s",
+                    response.url,
+                    index,
+                    len(value),
+                    self._short_snippet(value),
+                    str(parse_error)
+                )
+                continue
             if "initData" in program:
-                SvenskaLagSpider.write(type="presence", object=program["initData"])
+                self.logger.info(
+                    "[DEBUG_PRESENCE_INITDATA] url=%s initData_keys=%s",
+                    response.url,
+                    list(program["initData"].keys())[:10] if isinstance(program["initData"], dict) else type(program["initData"])
+                )
+                self.write(type="presence", object=program["initData"])
                 return
 
+        script_evidence = []
+        for script in response.xpath("//script")[:8]:
+            inline_text = script.xpath("text()").get()
+            script_evidence.append(
+                {
+                    "src": script.xpath("@src").get(),
+                    "inline_len": len(inline_text or ""),
+                    "inline_snippet": self._short_snippet(inline_text, length=200)
+                }
+            )
+        self.logger.warning(
+            "[DEBUG_PRESENCE_INITDATA_MISSING] url=%s scripts=%s",
+            response.url,
+            script_evidence
+        )
         raise Exception(f"Could not find 'initData' on page {response.url}")
 
-    @staticmethod
-    def parse_activity(response: scrapy.http.Response, **kwargs: Any):
+    def parse_activity(self, response: scrapy.http.Response, **kwargs: Any):
+        self._log_response_evidence(checkpoint="ACTIVITY_RESPONSE", response=response)
         ng_data_init = response.xpath("//body/@data-ng-init")
-        js = ast_to_dict(calmjs.parse.es5(ng_data_init.getall()[0]))
+        ng_data_init_value = ng_data_init.get()
+        if not ng_data_init_value:
+            body = response.xpath("//body")
+            body_attrs = body[0].attrib if body else {}
+            candidate_attrs = {k: self._short_snippet(v, length=120) for k, v in body_attrs.items()
+                               if "init" in k.lower() or "ng" in k.lower() or "data" in k.lower()}
+            self.logger.warning(
+                "[DEBUG_ACTIVITY_INIT_MISSING] url=%s body_attrs=%s candidate_attrs=%s body_snippet=%r",
+                response.url,
+                list(body_attrs.keys()),
+                candidate_attrs,
+                self._short_snippet(response.xpath("//body").get(), length=300)
+            )
+            raise Exception(f"Could not find body/@data-ng-init on page {response.url}")
+
+        try:
+            js = ast_to_dict(calmjs.parse.es5(ng_data_init_value))
+        except Exception as parse_error:
+            self.logger.warning(
+                "[DEBUG_ACTIVITY_INIT_PARSE_ERROR] url=%s init_len=%s init_snippet=%r error=%s",
+                response.url,
+                len(ng_data_init_value),
+                self._short_snippet(ng_data_init_value),
+                str(parse_error)
+            )
+            raise
+        self.logger.info(
+            "[DEBUG_ACTIVITY_INIT_FOUND] url=%s keys=%s",
+            response.url,
+            list(js.keys())[:10]
+        )
         for key, value in js.items():
             activity_data = value[0][1][0]
-            SvenskaLagSpider.write(type="activity", object=activity_data)
+            self.write(type="activity", object=activity_data)
 
     @staticmethod
     def write(type: str, object: dict):
