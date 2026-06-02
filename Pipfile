@@ -12,6 +12,7 @@ duckdb = "*"
 dbt-core = "*"
 dbt-bigquery = "*"
 google-cloud-bigquery = "*"
+python-dotenv = "*"
 
 [dev-packages]
 

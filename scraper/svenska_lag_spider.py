@@ -11,10 +11,20 @@ import locale
 import duckdb
 import uuid
 import hashlib
+from dotenv import load_dotenv
 from google.cloud import bigquery
 from twisted.python.failure import Failure
 
-locale.setlocale(locale.LC_TIME, 'sv_SE.utf8') # Get month names in Swedish
+load_dotenv()
+
+for _loc in ('sv_SE.UTF-8', 'sv_SE.utf8'):  # macOS uses the first form, Linux the second
+    try:
+        locale.setlocale(locale.LC_TIME, _loc)
+        break
+    except locale.Error:
+        continue
+else:
+    raise locale.Error("Swedish locale (sv_SE) is not available on this system")
 DATA = {
     "activity": [],
     "presence": []
@@ -207,7 +217,7 @@ class SvenskaLagSpider(scrapy.Spider):
                 current_date = current_date.replace(month=current_date.month + 1)
         return urls
 
-    def start_requests(self) -> Any:
+    async def start(self) -> Any:
         login_url = self._build_url(path="logga-in")
         username = os.environ["SVENSKALAG_USER"]
         password = os.environ["SVENSKALAG_PASSWORD"]
@@ -229,9 +239,18 @@ class SvenskaLagSpider(scrapy.Spider):
 
     def after_login(self, response: scrapy.http.Response, **kwargs: Any):
         self.truncate_files()
-        self._log_response_evidence(checkpoint="AUTH_RESPONSE", response=response)
         self._assert_ok_status(response=response, checkpoint="AUTH_RESPONSE")
-        self._assert_authenticated(response=response, checkpoint="AUTH_CHECK")
+        try:
+            login_payload = json.loads(response.text)
+        except ValueError as exc:
+            raise Exception(
+                f"Login response was not JSON: status={response.status} "
+                f"content_type={response.headers.get('Content-Type', b'').decode('utf-8', errors='ignore')} "
+                f"body_snippet={self._short_snippet(response.text, length=300)!r}"
+            ) from exc
+        if isinstance(login_payload, dict) and login_payload.get("error"):
+            raise Exception(f"Login rejected by server: {login_payload['error']}")
+        self.logger.info("[AUTH_RESPONSE] login_ok payload=%s", login_payload)
         probe_url = self._get_current_month_url()
         self.logger.info(
             "[CALENDAR_PROBE] probe_url=%s",
