@@ -42,3 +42,4 @@ SELECT
 FROM {{ ref('member') }} AS member
 LEFT JOIN attended_trainings USING (MEMBER_ID)
 CROSS JOIN available_trainings
+WHERE member.MEMBER_TYPE = 'Player'

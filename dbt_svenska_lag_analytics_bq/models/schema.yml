@@ -90,7 +90,7 @@ models:
         data_tests:
           - not_null
   - name: training_participation
-    description: Per-member training participation rate over rolling 4, 12, and 24 week windows. Only training activities (ACTIVITY_TYPE_ID = 1) are considered.
+    description: Per-player training participation rate over rolling 4, 12, and 24 week windows. Only training activities (ACTIVITY_TYPE_ID = 1) and members of type 'Player' are considered.
     columns:
       - name: member_id
         data_tests:
