@@ -12,6 +12,7 @@ import duckdb
 import uuid
 import hashlib
 from google.cloud import bigquery
+from twisted.python.failure import Failure
 
 locale.setlocale(locale.LC_TIME, 'sv_SE.utf8') # Get month names in Swedish
 DATA = {
@@ -157,6 +158,41 @@ class SvenskaLagSpider(scrapy.Spider):
         )
 
     @staticmethod
+    def _request_meta() -> dict[str, bool]:
+        return {"handle_httpstatus_all": True}
+
+    def _assert_ok_status(self, response: scrapy.http.Response, checkpoint: str):
+        if response.status < 400:
+            return
+        raise Exception(
+            f"[{checkpoint}] unexpected_http_status={response.status} url={response.url} "
+            f"redirects={response.request.meta.get('redirect_urls', [])} "
+            f"body_snippet={self._short_snippet(response.text, length=300)!r}"
+        )
+
+    def _request_errback(self, failure: Failure):
+        request = failure.request
+        response = getattr(failure.value, "response", None)
+        status = getattr(response, "status", None)
+        response_url = getattr(response, "url", "")
+        body_snippet = self._short_snippet(getattr(response, "text", None), length=300) if response else ""
+        raise Exception(
+            "[REQUEST_ERRBACK] "
+            f"request_url={request.url if request else ''} "
+            f"response_url={response_url} "
+            f"http_status={status} "
+            f"error={repr(failure.value)} "
+            f"body_snippet={body_snippet!r}"
+        ) from failure.value
+
+    @staticmethod
+    def _get_current_month_url() -> str:
+        current_date = datetime.now()
+        year = current_date.strftime('%Y')
+        month = current_date.strftime('%B').lower()
+        return SvenskaLagSpider._build_url(path=f"kalender/{year}/{month}")
+
+    @staticmethod
     def _get_start_urls() -> list[str]:
         end_date = datetime.now()
         urls = []
@@ -186,23 +222,63 @@ class SvenskaLagSpider(scrapy.Spider):
             login_url,
             formdata={'UserName': username, 'UserPass': password},
             callback=self.after_login,
+            errback=self._request_errback,
+            meta=self._request_meta(),
             dont_filter=True
         )
 
     def after_login(self, response: scrapy.http.Response, **kwargs: Any):
         self.truncate_files()
         self._log_response_evidence(checkpoint="AUTH_RESPONSE", response=response)
+        self._assert_ok_status(response=response, checkpoint="AUTH_RESPONSE")
         self._assert_authenticated(response=response, checkpoint="AUTH_CHECK")
+        probe_url = self._get_current_month_url()
+        self.logger.info(
+            "[CALENDAR_PROBE] probe_url=%s",
+            probe_url
+        )
+        yield response.follow(
+            probe_url,
+            callback=self.parse_calendar_probe,
+            errback=self._request_errback,
+            meta=self._request_meta(),
+            dont_filter=True,
+        )
+
+    def parse_calendar_probe(self, response: scrapy.http.Response, **kwargs: Any):
+        self._log_response_evidence(checkpoint="CALENDAR_PROBE_RESPONSE", response=response)
+        self._assert_ok_status(response=response, checkpoint="CALENDAR_PROBE_RESPONSE")
+        self._assert_authenticated(response=response, checkpoint="CALENDAR_PROBE_AUTH_CHECK")
+        activities_urls = response.xpath(
+            './/td/a[@class="invisible-link"]/@href'
+        ).getall()
+        self.logger.info(
+            "[CALENDAR_PROBE_LINKS] calendar_url=%s total_links=%s sample_links=%s",
+            response.url,
+            len(activities_urls),
+            [response.urljoin(url) for url in activities_urls[:10]]
+        )
+        if not activities_urls:
+            raise Exception(
+                "Current-month calendar probe found no activity links: "
+                f"url={response.url} html_sha256={self._html_hash(response)}"
+            )
         start_urls = self._get_start_urls()
         self.logger.info(
             "[AUTH_CHECK] start_urls_count=%s start_urls_sample=%s",
             len(start_urls),
             start_urls[:5]
         )
-        yield from response.follow_all(start_urls, callback=self.parse_calendar)
+        yield from response.follow_all(
+            start_urls,
+            callback=self.parse_calendar,
+            errback=self._request_errback,
+            meta=self._request_meta(),
+        )
 
     def parse_calendar(self, response: scrapy.http.Response, **kwargs: Any):
         self._log_response_evidence(checkpoint="CALENDAR_RESPONSE", response=response)
+        self._assert_ok_status(response=response, checkpoint="CALENDAR_RESPONSE")
         self._assert_authenticated(response=response, checkpoint="AUTH_CHECK")
 
         activities_urls = response.xpath(
@@ -251,7 +327,12 @@ class SvenskaLagSpider(scrapy.Spider):
             len(presence_urls),
             presence_urls[:5]
         )
-        yield from response.follow_all(presence_urls, callback=self.parse_presence)
+        yield from response.follow_all(
+            presence_urls,
+            callback=self.parse_presence,
+            errback=self._request_errback,
+            meta=self._request_meta(),
+        )
 
         activity_urls = []
         for url in activities_urls:
@@ -265,10 +346,16 @@ class SvenskaLagSpider(scrapy.Spider):
             activity_urls[:5]
         )
 
-        yield from response.follow_all(activity_urls, callback=self.parse_activity)
+        yield from response.follow_all(
+            activity_urls,
+            callback=self.parse_activity,
+            errback=self._request_errback,
+            meta=self._request_meta(),
+        )
 
     def parse_presence(self, response: scrapy.http.Response, **kwargs: Any):
         self._log_response_evidence(checkpoint="PRESENCE_RESPONSE", response=response)
+        self._assert_ok_status(response=response, checkpoint="PRESENCE_RESPONSE")
         init_data = response.xpath('/html/head/script/text()')
         self.logger.info(
             "[PRESENCE_SCRIPTS] url=%s head_script_text_nodes=%s all_script_nodes=%s",
@@ -319,6 +406,7 @@ class SvenskaLagSpider(scrapy.Spider):
 
     def parse_activity(self, response: scrapy.http.Response, **kwargs: Any):
         self._log_response_evidence(checkpoint="ACTIVITY_RESPONSE", response=response)
+        self._assert_ok_status(response=response, checkpoint="ACTIVITY_RESPONSE")
         ng_data_init = response.xpath("//body/@data-ng-init")
         ng_data_init_value = ng_data_init.get()
         if not ng_data_init_value:
@@ -370,7 +458,13 @@ class SvenskaLagSpider(scrapy.Spider):
 
 
 if __name__ == "__main__":
-    process = CrawlerProcess(settings={"LOG_LEVEL": os.getenv("SCRAPY_LOG_LEVEL", "INFO")})
+    process = CrawlerProcess(
+        settings={
+            "LOG_LEVEL": os.getenv("SCRAPY_LOG_LEVEL", "INFO"),
+            "COOKIES_DEBUG": os.getenv("SCRAPY_COOKIES_DEBUG", "0") == "1",
+            "LOGSTATS_INTERVAL": float(os.getenv("SCRAPY_LOGSTATS_INTERVAL", "60.0")),
+        }
+    )
     process.crawl(SvenskaLagSpider)
     process.start()
 
