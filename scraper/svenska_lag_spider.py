@@ -150,6 +150,13 @@ if __name__ == "__main__":
     process.crawl(SvenskaLagSpider)
     process.start()
 
+    activity_count = len(DATA["activity"])
+    presence_count = len(DATA["presence"])
+    print(f"Scrape debug payload counts: activities={activity_count}, presences={presence_count}")
+    if activity_count == 0 or presence_count == 0:
+        print(f"Scrape debug payload sample: activity={DATA['activity'][:1]}, presence={DATA['presence'][:1]}")
+        raise Exception(f"Scrape payload is empty: activities={activity_count}, presences={presence_count}")
+
     with open(ACTIVITY_FILE_PATH, "w") as f:
         for activity in DATA["activity"]:
             f.write(json.dumps(activity) + "\n")

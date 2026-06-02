@@ -12,3 +12,5 @@ metabase/
 dbt_packages/
 profiles.yml
 data/*.csv
+__pycache__/
+*.pyc
