@@ -498,17 +498,9 @@ if __name__ == "__main__":
         for activity in DATA["activity"]:
             f.write(json.dumps(activity) + "\n")
 
-    def _coerce_shirt_numbers_to_string(presence: dict) -> dict:
-        groups = presence.get("teamPresenceGroups") or []
-        for group in groups:
-            for participant in group.get("participants") or []:
-                if "shirtNumber" in participant and participant["shirtNumber"] is not None:
-                    participant["shirtNumber"] = str(participant["shirtNumber"])
-        return presence
-
     with open(PRESENCE_FILE_PATH, "w") as f:
         for presence in DATA["presence"]:
-            f.write(json.dumps(_coerce_shirt_numbers_to_string(presence)) + "\n")
+            f.write(json.dumps(presence) + "\n")
 
     # Load data into DuckDB
     conn = duckdb.connect(DUCKDB_FILE_PATH)
