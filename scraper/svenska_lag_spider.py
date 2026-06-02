@@ -150,6 +150,13 @@ if __name__ == "__main__":
     process.crawl(SvenskaLagSpider)
     process.start()
 
+    activity_count = len(DATA["activity"])
+    presence_count = len(DATA["presence"])
+    print(f"Scrape debug payload counts: activities={activity_count}, presences={presence_count}")
+    if activity_count == 0 or presence_count == 0:
+        print(f"Scrape debug payload sample: activity={DATA['activity'][:1]}, presence={DATA['presence'][:1]}")
+        raise Exception(f"Scrape payload is empty: activities={activity_count}, presences={presence_count}")
+
     with open(ACTIVITY_FILE_PATH, "w") as f:
         for activity in DATA["activity"]:
             f.write(json.dumps(activity) + "\n")
@@ -169,13 +176,6 @@ if __name__ == "__main__":
     print(f"Create raw table for presences, with {presence_count} rows")
 
     def load_bq_table(bq_client: bigquery.Client, file_path: str, table_id: str):
-        with open(file_path, "rb") as source_file:
-            has_data = any(line.strip() for line in source_file)
-
-        if not has_data:
-            print(f"Skip loading {file_path} into {table_id}: file is empty")
-            return
-
         job_config = bigquery.LoadJobConfig(
             source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
             write_disposition="WRITE_APPEND",
