@@ -278,9 +278,10 @@ class SvenskaLagSpider(scrapy.Spider):
             [response.urljoin(url) for url in activities_urls[:10]]
         )
         if not activities_urls:
-            raise Exception(
-                "Current-month calendar probe found no activity links: "
-                f"url={response.url} html_sha256={self._html_hash(response)}"
+            self.logger.warning(
+                "[CALENDAR_PROBE_NO_ACTIVITY_LINKS] url=%s html_sha256=%s",
+                response.url,
+                self._html_hash(response),
             )
         start_urls = self._get_start_urls()
         self.logger.info(
@@ -310,19 +311,12 @@ class SvenskaLagSpider(scrapy.Spider):
             [response.urljoin(url) for url in activities_urls[:10]]
         )
         if not activities_urls:
-            link_evidence = []
-            for link in response.xpath("//td/a")[:8]:
-                link_evidence.append(
-                    {
-                        "class": link.xpath("@class").get(),
-                        "href": link.xpath("@href").get(),
-                        "text": self._short_snippet(link.xpath("normalize-space(.)").get(), length=80),
-                    }
-                )
-            raise Exception(
-                "No calendar activity links found with selector './/td/a[@class=\"invisible-link\"]/@href': "
-                f"url={response.url} links_seen={link_evidence}"
+            self.logger.info(
+                "[CALENDAR_NO_ACTIVITY_LINKS] url=%s html_sha256=%s",
+                response.url,
+                self._html_hash(response),
             )
+            return
 
         # Only include team activities and skip org activities
         team_filter = f"/{self.team_slug}/"
