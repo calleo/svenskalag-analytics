@@ -36,5 +36,34 @@ class CalendarEmptyMonthTests(unittest.TestCase):
         self.assertEqual(output, [])
 
 
+class StringifyShirtNumbersTests(unittest.TestCase):
+    def test_converts_nested_integer_shirt_numbers_to_strings(self):
+        presence = {
+            "teams": [
+                {
+                    "attendingMembers": [
+                        {"memberId": 1, "shirtNumber": 7},
+                        {"memberId": 2, "shirtNumber": "10"},
+                        {"memberId": 3, "shirtNumber": None},
+                    ]
+                }
+            ]
+        }
+
+        result = svenska_lag_spider.SvenskaLagSpider._stringify_shirt_numbers(presence)
+
+        attending_members = result["teams"][0]["attendingMembers"]
+        self.assertEqual(attending_members[0]["shirtNumber"], "7")
+        self.assertEqual(attending_members[1]["shirtNumber"], "10")
+        self.assertIsNone(attending_members[2]["shirtNumber"])
+
+    def test_leaves_objects_without_shirt_number_unchanged(self):
+        presence = {"scheduleId": 123, "teamId": 456}
+
+        result = svenska_lag_spider.SvenskaLagSpider._stringify_shirt_numbers(presence)
+
+        self.assertEqual(result, {"scheduleId": 123, "teamId": 456})
+
+
 if __name__ == "__main__":
     unittest.main()
