@@ -13,6 +13,7 @@ import uuid
 import hashlib
 from dotenv import load_dotenv
 from google.cloud import bigquery
+from google.cloud.exceptions import NotFound
 from twisted.python.failure import Failure
 
 load_dotenv()
@@ -491,6 +492,38 @@ class SvenskaLagSpider(scrapy.Spider):
                 data_file.unlink()
 
 
+def load_bq_table(bq_client: bigquery.Client, file_path: str, table_id: str):
+    try:
+        bq_client.get_table(table_id)
+        table_exists = True
+    except NotFound:
+        table_exists = False
+
+    # Only let BigQuery infer a schema from the batch when the table is
+    # being created for the first time. Once the table exists, re-running
+    # autodetect on every append can infer a different type for a field
+    # (e.g. a column that happens to be all-null in this batch defaults
+    # to INTEGER) and clash with the table's actual schema, causing the
+    # load job to fail. Reusing the existing schema avoids that.
+    job_config = bigquery.LoadJobConfig(
+        source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+        write_disposition="WRITE_APPEND",
+        autodetect=not table_exists,
+        schema_update_options=["ALLOW_FIELD_ADDITION"]
+    )
+    with open(file_path, "rb") as source_file:
+        job = bq_client.load_table_from_file(
+            source_file, table_id, job_config=job_config
+        )
+        result = job.result()
+        print(f"Load Job Result: {result} [{result.errors or ''}]")
+
+    query = bq_client.query(f"SELECT COUNT(*) AS ROW_COUNT FROM {table_id}")
+    result = next(query.result())
+
+    print(f"Loaded data from {file_path} into {table_id}. Row count: {result['ROW_COUNT']}")
+
+
 if __name__ == "__main__":
     process = CrawlerProcess(
         settings={
@@ -527,25 +560,6 @@ if __name__ == "__main__":
     presence_count = conn.execute("SELECT COUNT(*) FROM raw_presence").fetchone()[0]
     print(f"Create raw table for activities, with {activity_count} rows")
     print(f"Create raw table for presences, with {presence_count} rows")
-
-    def load_bq_table(bq_client: bigquery.Client, file_path: str, table_id: str):
-        job_config = bigquery.LoadJobConfig(
-            source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
-            write_disposition="WRITE_APPEND",
-            autodetect=True,
-            schema_update_options=["ALLOW_FIELD_ADDITION", "ALLOW_FIELD_ADDITION"]
-        )
-        with open(file_path, "rb") as source_file:
-            job = bq_client.load_table_from_file(
-                source_file, table_id, job_config=job_config
-            )
-            result = job.result()
-            print(f"Load Job Result: {result} [{result.errors or ''}]")
-
-        query = bq_client.query(f"SELECT COUNT(*) AS ROW_COUNT FROM {table_id}")
-        result = next(query.result())
-
-        print(f"Loaded data from {file_path} into {table_id}. Row count: {result['ROW_COUNT']}")
 
     # Load data into BigQuery
     dataset_id = "ekf-f2014.dwh"

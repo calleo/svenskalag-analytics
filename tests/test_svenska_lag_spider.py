@@ -1,6 +1,7 @@
 import importlib
 import os
 import unittest
+import unittest.mock
 from unittest.mock import patch
 
 from scrapy.http import HtmlResponse, Request
@@ -63,6 +64,47 @@ class StringifyShirtNumbersTests(unittest.TestCase):
         result = svenska_lag_spider.SvenskaLagSpider._stringify_shirt_numbers(presence)
 
         self.assertEqual(result, {"scheduleId": 123, "teamId": 456})
+
+
+class LoadBqTableTests(unittest.TestCase):
+    def _mock_client(self, table_exists: bool):
+        client = unittest.mock.MagicMock()
+        if table_exists:
+            client.get_table.return_value = unittest.mock.MagicMock()
+        else:
+            client.get_table.side_effect = svenska_lag_spider.NotFound("not found")
+
+        job = unittest.mock.MagicMock()
+        job.result.return_value = unittest.mock.MagicMock(errors=None)
+        client.load_table_from_file.return_value = job
+
+        query_result = unittest.mock.MagicMock()
+        query_result.result.return_value = iter([{"ROW_COUNT": 1}])
+        client.query.return_value = query_result
+
+        return client
+
+    def test_uses_autodetect_when_table_does_not_exist(self):
+        client = self._mock_client(table_exists=False)
+
+        with unittest.mock.patch("builtins.open", unittest.mock.mock_open(read_data=b"{}")):
+            svenska_lag_spider.load_bq_table(
+                bq_client=client, file_path="dummy.json", table_id="dataset.table"
+            )
+
+        job_config = client.load_table_from_file.call_args.kwargs["job_config"]
+        self.assertTrue(job_config.autodetect)
+
+    def test_does_not_use_autodetect_when_table_already_exists(self):
+        client = self._mock_client(table_exists=True)
+
+        with unittest.mock.patch("builtins.open", unittest.mock.mock_open(read_data=b"{}")):
+            svenska_lag_spider.load_bq_table(
+                bq_client=client, file_path="dummy.json", table_id="dataset.table"
+            )
+
+        job_config = client.load_table_from_file.call_args.kwargs["job_config"]
+        self.assertFalse(job_config.autodetect)
 
 
 if __name__ == "__main__":
