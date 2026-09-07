@@ -463,6 +463,27 @@ class SvenskaLagSpider(scrapy.Spider):
         DATA[type].append(object)
 
     @staticmethod
+    def _stringify_shirt_numbers(value: Any) -> Any:
+        """Recursively coerce every "shirtNumber" value to a string.
+
+        The BigQuery table schema for raw_presence expects
+        attendingMembers.shirtNumber to be a STRING, but the scraped JS
+        sometimes represents it as a bare integer, which breaks the load
+        job with a schema mismatch. Normalize the type here so it always
+        matches the existing schema.
+        """
+        if isinstance(value, dict):
+            for key, nested_value in value.items():
+                if key == "shirtNumber" and nested_value is not None:
+                    value[key] = str(nested_value)
+                else:
+                    SvenskaLagSpider._stringify_shirt_numbers(nested_value)
+        elif isinstance(value, list):
+            for item in value:
+                SvenskaLagSpider._stringify_shirt_numbers(item)
+        return value
+
+    @staticmethod
     def truncate_files():
         for data_file in [ACTIVITY_FILE_PATH, PRESENCE_FILE_PATH]:
             data_file = pathlib.Path(data_file)
@@ -494,6 +515,7 @@ if __name__ == "__main__":
 
     with open(PRESENCE_FILE_PATH, "w") as f:
         for presence in DATA["presence"]:
+            presence = SvenskaLagSpider._stringify_shirt_numbers(presence)
             f.write(json.dumps(presence) + "\n")
 
     # Load data into DuckDB
