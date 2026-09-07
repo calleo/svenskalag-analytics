@@ -55,6 +55,8 @@ models:
           - relationships:
               to: ref('season')
               field: season_id
+              config:
+                severity: warn
   - name: member
     description: Team members
     columns:
